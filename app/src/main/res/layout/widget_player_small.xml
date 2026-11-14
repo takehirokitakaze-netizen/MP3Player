@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_bg"
+    android:orientation="vertical"
+    android:paddingStart="4dp"
+    android:paddingTop="2dp"
+    android:paddingEnd="4dp"
+    android:paddingBottom="4dp">
+
+    <TextView
+        android:id="@+id/widget_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:ellipsize="end"
+        android:gravity="center"
+        android:maxLines="1"
+        android:text="MP3プレーヤー"
+        android:textColor="#FFFFFF"
+        android:textSize="11sp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="2dp"
+        android:orientation="horizontal">
+
+        <TextView android:id="@+id/w_back30" style="@style/WidgetButtonSmall" android:text="-30" />
+        <TextView android:id="@+id/w_back10" style="@style/WidgetButtonSmall" android:text="-10" />
+        <TextView android:id="@+id/w_play" style="@style/WidgetButtonSmall" android:text="▶" android:textSize="16sp" />
+        <TextView android:id="@+id/w_fwd10" style="@style/WidgetButtonSmall" android:text="+10" />
+        <TextView android:id="@+id/w_fwd30" style="@style/WidgetButtonSmall" android:text="+30" />
+        <TextView android:id="@+id/w_fwd60" style="@style/WidgetButtonSmall" android:text="+1分" />
+    </LinearLayout>
+</LinearLayout>

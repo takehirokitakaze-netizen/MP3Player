@@ -11,7 +11,7 @@ import android.widget.Toast
 import androidx.core.content.ContextCompat
 
 /** ホーム画面ウィジェット：曲名・再生/一時停止・-30/-10/+10/+30秒・+1分 */
-class PlayerWidget : AppWidgetProvider() {
+open class PlayerWidget : AppWidgetProvider() {
 
     companion object {
         private const val ACTION_PLAY_PAUSE = "jp.kitakaze.player.widget.PLAY_PAUSE"
@@ -20,7 +20,12 @@ class PlayerWidget : AppWidgetProvider() {
 
         fun updateAll(context: Context) {
             val manager = AppWidgetManager.getInstance(context)
-            val ids = manager.getAppWidgetIds(ComponentName(context, PlayerWidget::class.java))
+            update(context, manager, PlayerWidget::class.java, R.layout.widget_player)
+            update(context, manager, PlayerWidgetSmall::class.java, R.layout.widget_player_small)
+        }
+
+        private fun update(context: Context, manager: AppWidgetManager, cls: Class<*>, layout: Int) {
+            val ids = manager.getAppWidgetIds(ComponentName(context, cls))
             if (ids.isEmpty()) return
 
             val service = PlaybackService.instance
@@ -29,7 +34,7 @@ class PlayerWidget : AppWidgetProvider() {
                 ?: "（アプリでフォルダを選んでください）"
             val playing = service?.player?.isPlaying == true
 
-            val views = RemoteViews(context.packageName, R.layout.widget_player)
+            val views = RemoteViews(context.packageName, layout)
             views.setTextViewText(R.id.widget_title, title)
             views.setTextViewText(R.id.w_play, if (playing) "❚❚" else "▶")
 
@@ -89,3 +94,6 @@ class PlayerWidget : AppWidgetProvider() {
         }
     }
 }
+
+/** 横4×縦1マスの小さいウィジェット（ボタン操作は PlayerWidget 側で処理） */
+class PlayerWidgetSmall : PlayerWidget()
