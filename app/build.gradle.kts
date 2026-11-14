@@ -17,11 +17,12 @@ android {
     }
 
     signingConfigs {
+        // 鍵はリポジトリに置かず、GitHubのシークレットからビルド時にだけ受け取る
         create("release") {
-            storeFile = file("../keystore/release.jks")
-            storePassword = "mp3player"
-            keyAlias = "player"
-            keyPassword = "mp3player"
+            storeFile = file(System.getenv("KEYSTORE_FILE") ?: "release.jks")
+            storePassword = System.getenv("KEYSTORE_PASSWORD")
+            keyAlias = System.getenv("KEY_ALIAS")
+            keyPassword = System.getenv("KEY_PASSWORD")
         }
     }
 
