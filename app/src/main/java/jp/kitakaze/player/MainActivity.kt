@@ -2,6 +2,7 @@ package jp.kitakaze.player
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -11,7 +12,9 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
+import android.provider.DocumentsContract
 import android.provider.Settings
+import android.view.View
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.ListView
@@ -41,6 +44,9 @@ class MainActivity : Activity() {
     private lateinit var playButton: Button
     private lateinit var speedView: TextView
     private lateinit var listView: ListView
+    private lateinit var selectionBar: View
+    private lateinit var deleteButton: Button
+    private var selectionMode = false
 
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private var controller: MediaController? = null
@@ -69,10 +75,10 @@ class MainActivity : Activity() {
         playButton = findViewById(R.id.btn_play)
         speedView = findViewById(R.id.speed)
         listView = findViewById(R.id.list)
+        selectionBar = findViewById(R.id.selection_bar)
+        deleteButton = findViewById(R.id.btn_sel_delete)
 
-        findViewById<Button>(R.id.btn_folder).setOnClickListener {
-            startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE), REQ_FOLDER)
-        }
+        findViewById<Button>(R.id.btn_folder).setOnClickListener { pickFolder() }
         findViewById<Button>(R.id.btn_battery).setOnClickListener { requestBatteryExemption() }
         findViewById<Button>(R.id.btn_exit).setOnClickListener {
             PlaybackService.instance?.exitApp()
@@ -108,11 +114,22 @@ class MainActivity : Activity() {
         })
 
         listView.setOnItemClickListener { _, _, position, _ ->
-            controller?.run {
-                seekTo(position, 0L)
-                play()
+            if (selectionMode) {
+                updateSelectionCount()
+            } else {
+                controller?.run {
+                    seekTo(position, 0L)
+                    play()
+                }
             }
         }
+        listView.setOnItemLongClickListener { _, _, position, _ ->
+            if (!selectionMode) enterSelection(position)
+            true
+        }
+        findViewById<Button>(R.id.btn_sel_all).setOnClickListener { toggleSelectAll() }
+        deleteButton.setOnClickListener { confirmDelete() }
+        findViewById<Button>(R.id.btn_sel_cancel).setOnClickListener { exitSelection() }
 
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -157,12 +174,23 @@ class MainActivity : Activity() {
         if (requestCode != REQ_FOLDER || resultCode != RESULT_OK) return
         val uri: Uri = data?.data ?: return
 
-        val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
-        contentResolver.takePersistableUriPermission(uri, flags)
+        // 削除もできるように書き込み権限も受け取る（できなければ読み取りだけ）
+        try {
+            contentResolver.takePersistableUriPermission(
+                uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            )
+        } catch (e: SecurityException) {
+            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
         // 以前のフォルダの権限は返しておく
         contentResolver.persistedUriPermissions
             .filter { it.uri != uri }
-            .forEach { contentResolver.releasePersistableUriPermission(it.uri, flags) }
+            .forEach {
+                var f = 0
+                if (it.isReadPermission) f = f or Intent.FLAG_GRANT_READ_URI_PERMISSION
+                if (it.isWritePermission) f = f or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                try { contentResolver.releasePersistableUriPermission(it.uri, f) } catch (_: Exception) { }
+            }
 
         Prefs.get(this).edit()
             .putString(Prefs.KEY_FOLDER, uri.toString())
@@ -217,6 +245,111 @@ class MainActivity : Activity() {
         // 0.05刻みに丸める（浮動小数の誤差対策）
         val rounded = ((value * 20f).roundToInt() / 20f).coerceIn(MIN_SPEED, MAX_SPEED)
         c.setPlaybackSpeed(rounded)
+    }
+
+    private fun pickFolder() {
+        startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE), REQ_FOLDER)
+    }
+
+    // ---- 選択モード（長押しで開始）と削除 ----
+
+    private fun enterSelection(firstPosition: Int) {
+        val tracks = shownTracks ?: return
+        if (tracks.isEmpty()) return
+        selectionMode = true
+        listView.clearChoices()
+        listView.choiceMode = ListView.CHOICE_MODE_MULTIPLE
+        listView.adapter = ArrayAdapter(
+            this, android.R.layout.simple_list_item_multiple_choice, tracks.map { it.name }
+        )
+        listView.setItemChecked(firstPosition, true)
+        selectionBar.visibility = View.VISIBLE
+        updateSelectionCount()
+    }
+
+    private fun exitSelection() {
+        if (!selectionMode) return
+        selectionMode = false
+        listView.clearChoices()
+        listView.choiceMode = ListView.CHOICE_MODE_SINGLE
+        shownTracks = null // 一覧を作り直させる
+        selectionBar.visibility = View.GONE
+        refreshUi()
+    }
+
+    private fun updateSelectionCount() {
+        deleteButton.text = "削除（${listView.checkedItemCount}）"
+    }
+
+    private fun toggleSelectAll() {
+        val count = listView.adapter?.count ?: return
+        val selectAll = listView.checkedItemCount < count
+        for (i in 0 until count) listView.setItemChecked(i, selectAll)
+        updateSelectionCount()
+    }
+
+    private fun hasWritePermission(): Boolean {
+        val folder = Prefs.get(this).getString(Prefs.KEY_FOLDER, null) ?: return false
+        return contentResolver.persistedUriPermissions.any {
+            it.uri.toString() == folder && it.isWritePermission
+        }
+    }
+
+    private fun confirmDelete() {
+        val tracks = shownTracks ?: return
+        val checked = listView.checkedItemPositions
+        val targets = tracks.filterIndexed { i, _ -> checked.get(i) }
+        if (targets.isEmpty()) {
+            Toast.makeText(this, "ファイルが選ばれていません", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (!hasWritePermission()) {
+            AlertDialog.Builder(this)
+                .setTitle("削除の許可が必要です")
+                .setMessage("削除できるようにするため、同じフォルダをもう一度選んでください（最初の1回だけです）。")
+                .setPositiveButton("フォルダを選ぶ") { _, _ ->
+                    exitSelection()
+                    pickFolder()
+                }
+                .setNegativeButton("やめる", null)
+                .show()
+            return
+        }
+        val preview = targets.take(5).joinToString("\n") { "・" + it.name } +
+            if (targets.size > 5) "\n…ほか${targets.size - 5}件" else ""
+        AlertDialog.Builder(this)
+            .setTitle("${targets.size}件を削除しますか？")
+            .setMessage("スマホから完全に削除されます。元に戻せません。\n\n$preview")
+            .setPositiveButton("削除する") { _, _ -> deleteFiles(targets) }
+            .setNegativeButton("やめる", null)
+            .show()
+    }
+
+    private fun deleteFiles(targets: List<Track>) {
+        Thread {
+            val deleted = mutableSetOf<String>()
+            var failed = 0
+            for (t in targets) {
+                val ok = try {
+                    DocumentsContract.deleteDocument(contentResolver, t.uri)
+                } catch (e: Exception) {
+                    false
+                }
+                if (ok) deleted += t.uri.toString() else failed++
+            }
+            runOnUiThread {
+                PlaybackService.instance?.removeTracks(deleted)
+                exitSelection()
+                val msg = if (failed == 0) "${deleted.size}件削除しました"
+                else "${deleted.size}件削除しました（${failed}件は削除できませんでした）"
+                Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+            }
+        }.start()
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        if (selectionMode) exitSelection() else super.onBackPressed()
     }
 
     private fun toggleFloating() {
@@ -276,16 +409,18 @@ class MainActivity : Activity() {
         playButton.text = if (c.isPlaying) "❚❚" else "▶"
         speedView.text = String.format(Locale.US, "%.2f倍", c.playbackParameters.speed)
 
-        val tracks = PlaybackService.instance?.tracks ?: emptyList()
-        if (tracks !== shownTracks) {
-            shownTracks = tracks
-            listView.adapter = ArrayAdapter(
-                this, android.R.layout.simple_list_item_activated_1, tracks.map { it.name }
-            )
-        }
-        val index = c.currentMediaItemIndex
-        if (index in tracks.indices) {
-            listView.setItemChecked(index, true)
+        if (!selectionMode) {
+            val tracks = PlaybackService.instance?.tracks ?: emptyList()
+            if (tracks !== shownTracks) {
+                shownTracks = tracks
+                listView.adapter = ArrayAdapter(
+                    this, android.R.layout.simple_list_item_activated_1, tracks.map { it.name }
+                )
+            }
+            val index = c.currentMediaItemIndex
+            if (index in tracks.indices) {
+                listView.setItemChecked(index, true)
+            }
         }
         updatePosition()
     }

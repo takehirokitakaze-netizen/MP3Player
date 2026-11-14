@@ -179,6 +179,23 @@ class PlaybackService : MediaSessionService() {
         floating?.refresh()
     }
 
+    /** 削除したファイルを再生リストから外す */
+    fun removeTracks(uris: Set<String>) {
+        if (uris.isEmpty()) return
+        for (i in player.mediaItemCount - 1 downTo 0) {
+            if (player.getMediaItemAt(i).mediaId in uris) player.removeMediaItem(i)
+        }
+        tracks = tracks.filter { it.uri.toString() !in uris }
+        if (player.mediaItemCount == 0) {
+            Prefs.get(this).edit().remove(Prefs.KEY_CURRENT).remove(Prefs.KEY_TITLE).apply()
+        } else {
+            saveState()
+        }
+        PlayerWidget.updateAll(this)
+        floating?.refresh()
+        floating?.onStateChanged()
+    }
+
     fun togglePlay() {
         if (player.isPlaying) {
             player.pause()

@@ -139,4 +139,28 @@
         android:layout_marginTop="8dp"
         android:layout_weight="1"
         android:choiceMode="singleChoice" />
+
+    <LinearLayout
+        android:id="@+id/selection_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:visibility="gone">
+
+        <Button
+            android:id="@+id/btn_sel_all"
+            style="@style/SmallButton"
+            android:text="全選択" />
+
+        <Button
+            android:id="@+id/btn_sel_delete"
+            style="@style/SmallButton"
+            android:text="削除（0）"
+            android:textColor="#FF8A80" />
+
+        <Button
+            android:id="@+id/btn_sel_cancel"
+            style="@style/SmallButton"
+            android:text="キャンセル" />
+    </LinearLayout>
 </LinearLayout>
