@@ -79,6 +79,9 @@ class MainActivity : Activity() {
             finish()
         }
 
+        findViewById<Button>(R.id.btn_float).setOnClickListener { toggleFloating() }
+        findViewById<Button>(R.id.btn_float_style).setOnClickListener { toggleFloatingStyle() }
+
         findViewById<Button>(R.id.btn_restart).setOnClickListener { controller?.seekTo(0) }
         findViewById<Button>(R.id.btn_back10).setOnClickListener { seekBy(-10_000) }
         playButton.setOnClickListener { togglePlay() }
@@ -131,6 +134,13 @@ class MainActivity : Activity() {
             refreshUi()
         }, ContextCompat.getMainExecutor(this))
         handler.post(ticker)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // 「他のアプリの上に重ねて表示」の許可から戻ってきた時もここで反映
+        updateFloatingButtons()
+        PlaybackService.instance?.floating?.refresh()
     }
 
     override fun onStop() {
@@ -207,6 +217,39 @@ class MainActivity : Activity() {
         // 0.05刻みに丸める（浮動小数の誤差対策）
         val rounded = ((value * 20f).roundToInt() / 20f).coerceIn(MIN_SPEED, MAX_SPEED)
         c.setPlaybackSpeed(rounded)
+    }
+
+    private fun toggleFloating() {
+        val prefs = Prefs.get(this)
+        val on = !prefs.getBoolean(Prefs.KEY_FLOAT_ON, false)
+        prefs.edit().putBoolean(Prefs.KEY_FLOAT_ON, on).apply()
+        if (on && !Settings.canDrawOverlays(this)) {
+            Toast.makeText(this, "「MP3プレーヤー」をオンにして戻ってください", Toast.LENGTH_LONG).show()
+            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+        } else if (on && PlaybackService.instance?.player?.mediaItemCount == 0) {
+            Toast.makeText(this, "フォルダを選ぶと浮きボタンが出ます", Toast.LENGTH_SHORT).show()
+        }
+        updateFloatingButtons()
+        PlaybackService.instance?.floating?.refresh()
+    }
+
+    private fun toggleFloatingStyle() {
+        val prefs = Prefs.get(this)
+        val circle = prefs.getString(Prefs.KEY_FLOAT_STYLE, FloatingControls.STYLE_PANEL) == FloatingControls.STYLE_CIRCLE
+        prefs.edit().putString(
+            Prefs.KEY_FLOAT_STYLE,
+            if (circle) FloatingControls.STYLE_PANEL else FloatingControls.STYLE_CIRCLE
+        ).apply()
+        PlaybackService.instance?.floating?.closeMenu()
+        updateFloatingButtons()
+    }
+
+    private fun updateFloatingButtons() {
+        val prefs = Prefs.get(this)
+        val on = prefs.getBoolean(Prefs.KEY_FLOAT_ON, false)
+        val circle = prefs.getString(Prefs.KEY_FLOAT_STYLE, FloatingControls.STYLE_PANEL) == FloatingControls.STYLE_CIRCLE
+        findViewById<Button>(R.id.btn_float).text = if (on) "浮きボタン：ON" else "浮きボタン：OFF"
+        findViewById<Button>(R.id.btn_float_style).text = if (circle) "形：サークル" else "形：パネル"
     }
 
     private fun requestBatteryExemption() {

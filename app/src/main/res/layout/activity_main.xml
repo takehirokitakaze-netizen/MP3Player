@@ -26,6 +26,22 @@
             android:text="終了" />
     </LinearLayout>
 
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btn_float"
+            style="@style/SmallButton"
+            android:text="浮きボタン：OFF" />
+
+        <Button
+            android:id="@+id/btn_float_style"
+            style="@style/SmallButton"
+            android:text="形：パネル" />
+    </LinearLayout>
+
     <TextView
         android:id="@+id/title"
         android:layout_width="match_parent"

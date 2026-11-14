@@ -53,6 +53,8 @@ class PlaybackService : MediaSessionService() {
         private set
     var tracks: List<Track> = emptyList()
         private set
+    var floating: FloatingControls? = null
+        private set
     private var exiting = false
     private val handler = Handler(Looper.getMainLooper())
 
@@ -68,11 +70,13 @@ class PlaybackService : MediaSessionService() {
             handler.removeCallbacks(periodicSave)
             if (isPlaying) handler.postDelayed(periodicSave, 10_000) else saveState()
             PlayerWidget.updateAll(this@PlaybackService)
+            floating?.onStateChanged()
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             saveState()
             PlayerWidget.updateAll(this@PlaybackService)
+            floating?.onStateChanged()
         }
 
         override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {
@@ -115,6 +119,7 @@ class PlaybackService : MediaSessionService() {
 
         restoreState()
         PlayerWidget.updateAll(this)
+        floating = FloatingControls(this).also { it.refresh() }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
@@ -149,6 +154,8 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
+        floating?.hideAll()
+        floating = null
         saveState()
         session?.run {
             player.release()
@@ -169,6 +176,7 @@ class PlaybackService : MediaSessionService() {
         player.prepare()
         saveState()
         PlayerWidget.updateAll(this)
+        floating?.refresh()
     }
 
     fun togglePlay() {
@@ -188,6 +196,7 @@ class PlaybackService : MediaSessionService() {
 
     fun exitApp() {
         saveState()
+        floating?.hideAll()
         exiting = true
         player.pause()
         player.stop()
