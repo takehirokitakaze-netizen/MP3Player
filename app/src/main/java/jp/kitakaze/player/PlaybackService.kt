@@ -65,10 +65,34 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    // 再生中はウィジェットのシークバーを5秒ごとに進める
+    private val widgetTicker = object : Runnable {
+        override fun run() {
+            PlayerWidget.updateAll(this@PlaybackService)
+            handler.postDelayed(this, 5_000)
+        }
+    }
+
     private val listener = object : Player.Listener {
+        override fun onPositionDiscontinuity(
+            oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int
+        ) {
+            PlayerWidget.updateAll(this@PlaybackService)
+        }
+
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            PlayerWidget.updateAll(this@PlaybackService)
+        }
+
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             handler.removeCallbacks(periodicSave)
-            if (isPlaying) handler.postDelayed(periodicSave, 10_000) else saveState()
+            handler.removeCallbacks(widgetTicker)
+            if (isPlaying) {
+                handler.postDelayed(periodicSave, 10_000)
+                handler.postDelayed(widgetTicker, 5_000)
+            } else {
+                saveState()
+            }
             PlayerWidget.updateAll(this@PlaybackService)
             floating?.onStateChanged()
         }
@@ -208,6 +232,13 @@ class PlaybackService : MediaSessionService() {
     }
 
     fun seekBy(ms: Long) = seekWithin(player, ms)
+
+    /** 曲全体の割合（0.0〜1.0）の位置へ移動 */
+    fun seekToFraction(fraction: Float) {
+        val duration = player.duration
+        if (duration == C.TIME_UNSET || duration <= 0) return
+        player.seekTo((duration * fraction.coerceIn(0f, 1f)).toLong())
+    }
 
     fun currentTitle(): String? = player.currentMediaItem?.mediaMetadata?.title?.toString()
 

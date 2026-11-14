@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">MP3プレーヤー</string>
-    <string name="widget_name">MP3プレーヤー操作</string>
-    <string name="widget_small_name">MP3プレーヤー操作（小・4×1）</string>
+    <string name="widget_name">MP3プレーヤー（4×2）</string>
+    <string name="widget_small_name">MP3プレーヤー（小・4×1）</string>
 </resources>

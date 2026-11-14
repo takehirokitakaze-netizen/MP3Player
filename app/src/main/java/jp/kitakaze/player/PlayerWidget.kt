@@ -7,16 +7,19 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.widget.RemoteViews
-import android.widget.Toast
-import androidx.core.content.ContextCompat
+import androidx.media3.common.C
 
-/** ホーム画面ウィジェット：曲名・再生/一時停止・-30/-10/+10/+30秒・+1分 */
+/**
+ * ホーム画面ウィジェット。
+ * 上半分：曲名と再生位置（タップでアプリを開く）
+ * 下半分：シークバー（20分割、タップした位置へジャンプ）
+ */
 open class PlayerWidget : AppWidgetProvider() {
 
     companion object {
-        private const val ACTION_PLAY_PAUSE = "jp.kitakaze.player.widget.PLAY_PAUSE"
-        private const val ACTION_SEEK = "jp.kitakaze.player.widget.SEEK"
-        private const val EXTRA_MS = "ms"
+        private const val ACTION_SEEK_TO = "jp.kitakaze.player.widget.SEEK_TO"
+        private const val EXTRA_FRACTION = "fraction"
+        private const val SEGMENTS = 20
 
         fun updateAll(context: Context) {
             val manager = AppWidgetManager.getInstance(context)
@@ -28,37 +31,51 @@ open class PlayerWidget : AppWidgetProvider() {
             val ids = manager.getAppWidgetIds(ComponentName(context, cls))
             if (ids.isEmpty()) return
 
+            val prefs = Prefs.get(context)
             val service = PlaybackService.instance
+            val player = service?.player
             val title = service?.currentTitle()
-                ?: Prefs.get(context).getString(Prefs.KEY_TITLE, null)
-                ?: "（アプリでフォルダを選んでください）"
-            val playing = service?.player?.isPlaying == true
+                ?: prefs.getString(Prefs.KEY_TITLE, null)
+                ?: "（タップしてアプリでフォルダを選んでください）"
+            val position = player?.currentPosition ?: prefs.getLong(Prefs.KEY_POSITION, 0L)
+            val duration = player?.duration ?: C.TIME_UNSET
+            val playing = player?.isPlaying == true
+
+            val mark = if (playing) "▶" else "❚❚"
+            val time = if (duration != C.TIME_UNSET && duration > 0) {
+                "$mark  ${FloatingControls.formatTime(position)} / ${FloatingControls.formatTime(duration)}"
+            } else {
+                "$mark  ${FloatingControls.formatTime(position)}"
+            }
+            val progress = if (duration != C.TIME_UNSET && duration > 0) {
+                (position * 1000 / duration).toInt().coerceIn(0, 1000)
+            } else 0
 
             val views = RemoteViews(context.packageName, layout)
             views.setTextViewText(R.id.widget_title, title)
-            views.setTextViewText(R.id.w_play, if (playing) "❚❚" else "▶")
+            views.setTextViewText(R.id.widget_time, time)
+            views.setProgressBar(R.id.widget_progress, 1000, progress, false)
 
             val openApp = PendingIntent.getActivity(
                 context, 100, Intent(context, MainActivity::class.java),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )
-            views.setOnClickPendingIntent(R.id.widget_title, openApp)
-            views.setOnClickPendingIntent(R.id.w_play, action(context, ACTION_PLAY_PAUSE, 0, 1))
-            views.setOnClickPendingIntent(R.id.w_back30, action(context, ACTION_SEEK, -30_000, 2))
-            views.setOnClickPendingIntent(R.id.w_back10, action(context, ACTION_SEEK, -10_000, 3))
-            views.setOnClickPendingIntent(R.id.w_fwd10, action(context, ACTION_SEEK, 10_000, 4))
-            views.setOnClickPendingIntent(R.id.w_fwd30, action(context, ACTION_SEEK, 30_000, 5))
-            views.setOnClickPendingIntent(R.id.w_fwd60, action(context, ACTION_SEEK, 60_000, 6))
+            views.setOnClickPendingIntent(R.id.widget_top, openApp)
+
+            for (i in 0 until SEGMENTS) {
+                val id = context.resources.getIdentifier("seg$i", "id", context.packageName)
+                if (id != 0) views.setOnClickPendingIntent(id, seekIntent(context, i))
+            }
 
             manager.updateAppWidget(ids, views)
         }
 
-        private fun action(context: Context, action: String, ms: Long, requestCode: Int): PendingIntent {
+        private fun seekIntent(context: Context, segment: Int): PendingIntent {
             val intent = Intent(context, PlayerWidget::class.java)
-                .setAction(action)
-                .putExtra(EXTRA_MS, ms)
+                .setAction(ACTION_SEEK_TO)
+                .putExtra(EXTRA_FRACTION, segment.toFloat() / SEGMENTS)
             return PendingIntent.getBroadcast(
-                context, requestCode, intent,
+                context, 200 + segment, intent,
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )
         }
@@ -70,30 +87,12 @@ open class PlayerWidget : AppWidgetProvider() {
 
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
-        val action = intent.action ?: return
-        if (action != ACTION_PLAY_PAUSE && action != ACTION_SEEK) return
-
-        val service = PlaybackService.instance
-        if (service != null && service.player.mediaItemCount > 0) {
-            when (action) {
-                ACTION_PLAY_PAUSE -> service.togglePlay()
-                ACTION_SEEK -> service.seekBy(intent.getLongExtra(EXTRA_MS, 0))
-            }
-            updateAll(context)
-        } else if (action == ACTION_PLAY_PAUSE) {
-            // アプリが終了している場合：サービスを起こして前回の続きから再生
-            try {
-                ContextCompat.startForegroundService(
-                    context,
-                    Intent(context, PlaybackService::class.java)
-                        .setAction(PlaybackService.ACTION_WIDGET_PLAY)
-                )
-            } catch (e: Exception) {
-                Toast.makeText(context, "アプリを開いて再生してください", Toast.LENGTH_SHORT).show()
-            }
-        }
+        if (intent.action != ACTION_SEEK_TO) return
+        val service = PlaybackService.instance ?: return
+        service.seekToFraction(intent.getFloatExtra(EXTRA_FRACTION, 0f))
+        updateAll(context)
     }
 }
 
-/** 横4×縦1マスの小さいウィジェット（ボタン操作は PlayerWidget 側で処理） */
+/** 横4×縦1マスの小さいウィジェット（中身は同じ） */
 class PlayerWidgetSmall : PlayerWidget()
